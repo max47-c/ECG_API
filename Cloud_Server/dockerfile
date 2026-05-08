@@ -1,8 +1,0 @@
-FROM python:3.11-slim
-WORKDIR /app
-COPY Requirements_cloud.txt .
-RUN pip install --no-cache-dir -r Requirements_cloud.txt
-COPY cloud_app.py preprocess.py image_utils.py /app/
-# destination /app/ is an explicit directory with trailing slash
-EXPOSE 8000
-CMD ["uvicorn", "cloud_app:app", "--host", "0.0.0.0", "--port", "8000"]

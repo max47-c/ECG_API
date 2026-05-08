@@ -1,7 +1,0 @@
-numpy
-univcorn
-Pillow
-fastapi
-pydemic
-onnxruntime
-requests
