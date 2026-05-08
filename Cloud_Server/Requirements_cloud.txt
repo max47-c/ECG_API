@@ -1,0 +1,8 @@
+numpy
+scipy
+fastapi
+uvicorn
+Pillow
+matplotlib
+ssqueezepy
+scikit-image

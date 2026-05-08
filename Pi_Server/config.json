@@ -1,0 +1,32 @@
+{
+  "LABELS": {
+    "N": 0,
+    "A": 1,
+    "O": 2,
+    "Z": 3
+  },
+  "INV_LABELS": {
+    "0": "N",
+    "1": "A",
+    "2": "O",
+    "3": "Z"
+  },
+  "NUM_CLASSES": 4,
+  "ECG_DIM": 2,
+  "NORMALIZE_MEAN": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "NORMALIZE_STD": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "IMAGE_SIZE": 224,
+  "TRANSFORMS": "Resize(224), ToTensor(), Normalize",
+  "MODEL_ARCH": "DualInputShuffleNet",
+  "BRANCH_IMAGE": "ShuffleNetV2_x1.0 pretrained",
+  "BRANCH_FEATURES": "FC(2->256->128) with BN, Dropout",
+  "CLASSIFIER": "FC(1152->512->256->4) with BN, Dropout"
+}
