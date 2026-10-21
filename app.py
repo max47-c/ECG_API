@@ -1,9 +1,13 @@
 # app.py — Unified Cloud ECG Analysis API (100% cloud-based)
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import numpy as np
 import math
+import os
+import asyncio
 from scipy.signal import resample_poly
 import base64
 from io import BytesIO
@@ -26,6 +30,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ───── Concurrency control ─────
+# The analysis pipeline is CPU-bound (WSST + Lyapunov + ONNX). On Render's free
+# tier (1 vCPU), running several analyses at once just makes all of them slower
+# (Python GIL) and risks client timeouts. We therefore serialize the heavy work:
+# at most MAX_CONCURRENCY analyses run at the same time; the rest wait in a
+# bounded queue. If the queue is full, we fail fast with 503 + Retry-After
+# instead of piling up unbounded work.
+MAX_CONCURRENCY = max(1, int(os.getenv("MAX_CONCURRENCY", "1")))
+MAX_QUEUE = max(0, int(os.getenv("MAX_QUEUE", "8")))
+
+_analysis_sem = asyncio.Semaphore(MAX_CONCURRENCY)
+_waiting = 0
+_waiting_lock = asyncio.Lock()
 
 # Load ONNX model at startup
 try:
@@ -88,7 +106,7 @@ def validate_signal(values: list[float]) -> dict:
 # ───── Endpoints ─────
 
 @app.post("/analyze", response_model=ECGResponse)
-def analyze_ecg(req: ECGRequest):
+async def analyze_ecg(req: ECGRequest):
     """
     Full ECG analysis pipeline:
     1. Validate signal quality
@@ -98,7 +116,40 @@ def analyze_ecg(req: ECGRequest):
     5. Extract DFA α₁ + Lyapunov exponent
     6. Generate WSST spectrogram
     7. ONNX inference → classification
+
+    Concurrency: heavy work is serialized (MAX_CONCURRENCY) with a bounded wait
+    queue (MAX_QUEUE). If the queue is full, returns 503 + Retry-After.
     """
+    global _waiting
+    async with _waiting_lock:
+        if _waiting >= MAX_QUEUE:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Server busy, please retry shortly.",
+                    "max_concurrency": MAX_CONCURRENCY,
+                    "max_queue": MAX_QUEUE,
+                },
+                headers={"Retry-After": "10"},
+            )
+        _waiting += 1
+
+    acquired = False
+    try:
+        await _analysis_sem.acquire()
+        acquired = True
+        async with _waiting_lock:
+            _waiting -= 1
+        return await run_in_threadpool(_run_analysis, req)
+    finally:
+        if acquired:
+            _analysis_sem.release()
+        else:
+            async with _waiting_lock:
+                _waiting -= 1
+
+
+def _run_analysis(req: ECGRequest) -> ECGResponse:
     # 1. Quality validation
     quality = validate_signal(req.values)
 
@@ -159,4 +210,11 @@ def analyze_ecg(req: ECGRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "2.0.0", "mode": "cloud-only"}
+    return {
+        "status": "ok",
+        "version": "2.1.0",
+        "mode": "cloud-only",
+        "max_concurrency": MAX_CONCURRENCY,
+        "max_queue": MAX_QUEUE,
+        "waiting": _waiting,
+    }
