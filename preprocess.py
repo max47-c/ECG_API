@@ -83,18 +83,23 @@ def lyapunovExponent(x, fs, m=10, tau=1, max_iter=200):
     if L <= 1:
         return 0.0
 
+    # Suivi de la divergence, vectorisé par pas de temps k.
+    # Pour un k donné, les points futurs sont Y[i+k] et Y[nn_idx[i]+k] pour tous
+    # les i tels que i+k < N et nn_idx[i]+k < N. On les évalue tous d'un coup
+    # (au lieu d'une double boucle Python + np.linalg.norm appelée 600 000 fois).
     div = np.zeros(L)
     count = np.zeros(L)
-
-    for i in range(N):
-        j = nn_idx[i]
-        for k in range(L):
-            if i + k >= N or j + k >= N:
-                break
-            # Distance euclidienne entre les points futurs dans l'espace des phases
-            d = np.linalg.norm(Y[i + k] - Y[j + k])
-            div[k] += d
-            count[k] += 1
+    base_idx = np.arange(N)
+    for k in range(L):
+        valid = (base_idx + k < N) & (nn_idx + k < N)
+        n_valid = int(valid.sum())
+        if n_valid == 0:
+            continue
+        i_idx = base_idx[valid] + k
+        j_idx = nn_idx[valid] + k
+        d = np.sqrt(np.sum((Y[i_idx] - Y[j_idx]) ** 2, axis=1))
+        div[k] = d.sum()
+        count[k] = n_valid
 
     # Moyenne de la divergence pour chaque pas de temps
     div = div[count > 0] / count[count > 0]
