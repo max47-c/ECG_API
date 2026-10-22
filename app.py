@@ -21,7 +21,7 @@ import sys
 app = FastAPI(
     title="ECG Analysis API — Cloud",
     description="100% cloud-based ECG classification using DualInputShuffleNet",
-    version="2.0.0",
+    version="2.1.0",
 )
 
 app.add_middleware(
